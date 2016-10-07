@@ -56,8 +56,15 @@ OBJS = $(SRCS:.c=.o)
 
 .PHONY: lib proj
 
-all: lib proj
+all:
+	make build
+	make flash
+
+build: lib proj
 	$(SIZE) $(OUTPATH)/$(PROJ_NAME).elf
+
+flash:
+	sudo openocd -f ~/Documents/coding/iot/openocd/tcl/interface/stlink-v2.cfg -c "set WORKAREASIZE 0x2000" -f ~/Documents/coding/iot/openocd/tcl/target/stm32f4x_stlink.cfg -c "program build/stm32f4_sample.elf verify reset"
 
 lib:
 	$(MAKE) -C lib FLOAT_TYPE=$(FLOAT_TYPE)
