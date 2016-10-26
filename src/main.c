@@ -32,10 +32,11 @@ void SendData(USART_TypeDef* USARTx, volatile char *s);
 void IncrementCounter();
 void Delay(volatile uint32_t nCount);
 
-void INTPA0_Config();
+void INTPD0_Config();
 void INTTIM2_Config();
 void TIM2_IRQHandler(void);
 void EXTI0_IRQHandler(void);
+void SendDebug(void);
 
 // --------------------------- //
 // ---------- Main ----------- //
@@ -44,9 +45,9 @@ void EXTI0_IRQHandler(void);
 int main(void) {
 
     INTTIM2_Config();
-    INTPA0_Config();
+    INTPD0_Config();
     
-    InitPLL()
+    InitPLL();
     InitUSART();
     InitGPIOD();
     //InitDAC();
@@ -67,21 +68,20 @@ int main(void) {
 // This should be done after USART is configured
 void SendDebug() {
 
-	// Check the SYSCLK source
-	SendData(USART2, "SYSCLK source: ");
-    SendData(USART2, &(RCC_GetSYSCLKSource())); // 0x08 if PLL
-    SendData(USART2, "\n");
+    char buffer[256];
+    for (int i = 0; i < 256; i++) {
+        buffer[i] = 0;
+    }
 
-    // Check SYSCLK, AHB, APB1 frequencies
-    SendData(USART2, "SYS/PLL: ");
-    SendData(USART2, &(clkfreqs.SYSCLK_Frequency));
-    SendData(USART2, "\n");
-    SendData(USART2, "AHB: ");
-    SendData(USART2, &(clkfreqs.HCLK_Frequency));
-    SendData(USART2, "\n");
-    SendData(USART2, "APB1: ");
-    SendData(USART2, &(clkfreqs.PCLK1_Frequency));
-    SendData(USART2, "\n");
+    sprintf(buffer, "SYSCLK source: %d\n", RCC_GetSYSCLKSource());
+    SendData(USART2, buffer);
+     /*Check SYSCLK, AHB, APB1 frequencies*/
+    sprintf(buffer, "SYS/PLL: %d\n", (int)clkfreqs.SYSCLK_Frequency);
+    SendData(USART2, buffer);
+    sprintf(buffer, "AHB: %d\n", (int)clkfreqs.HCLK_Frequency);
+    SendData(USART2, buffer);
+    sprintf(buffer, "APB1: %d\n", (int)clkfreqs.PCLK1_Frequency);
+    SendData(USART2, buffer);
 }
 
 // -------------------------- //
@@ -99,7 +99,7 @@ void InitPLL(void) {
 
     /* Use PLL as system clock */
     RCC_SYSCLKConfig(RCC_SYSCLKSource_PLLCLK); // change SYSCLK to PLL
-    //fprintf(stderr, "SYSCLK source: %d\n", RCC_GetSYSCLKSource());
+    /*fprintf(stderr, "SYSCLK source: %d\n", RCC_GetSYSCLKSource());*/
 }
 
 // ---------------------------- //
@@ -131,7 +131,7 @@ void InitUSART(void) {
     // RCC_MCO2Source_SYSCLK: System clock (SYSCLK) selected as MCO2 source
     // RCC_MCO2Source_HSE: HSE clock selected as MCO2 source
     // RCC_MCO2Source_PLLCLK: main PLL clock selected as MCO2 source
-    RCC_MCO1Config(RCC_MCO1Source_PLLCLK, RCC_MCO1Div_1); // check another clock with no division
+    RCC_MCO1Config(RCC_MCO1Source_HSI, RCC_MCO1Div_1); // check another clock with no division
     // RCC_MCO1Source_HSI: HSI clock selected as MCO1 source
     // RCC_MCO1Source_LSE: LSE clock selected as MCO1 source
     // RCC_MCO1Source_HSE: HSE clock selected as MCO1 source
@@ -217,7 +217,8 @@ void IncrementCounter(void) {
 
 void InitDAC(void) {
 
-    DAC_InitTypeDef DAC_InitStructure;
+    /*DAC_InitTypeDef DAC_InitStructure;*/
+    GPIO_InitTypeDef GPIO_InitStructure;
 
     // Clock
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_DAC, ENABLE);
@@ -338,7 +339,7 @@ void EXTI0_IRQHandler(void) {
     /* Make sure that interrupt flag is set */
     if (EXTI_GetITStatus(EXTI_Line0) != RESET) {
     	if (debounce == 0) {
-    	    incrementCounter();
+    	    IncrementCounter();
     	    SendData(USART2, "Hello world\n\r");
     	    debounce = 500;
     	}

@@ -1,6 +1,6 @@
 # Sources
 
-SRCS = main.c stm32f4xx_it.c system_stm32f4xx.c syscalls.c utils.c tm_stm32f4_usart.c
+SRCS = main.c stm32f4xx_it.c system_stm32f4xx.c syscalls.c utils.c
 
 # Project name
 
