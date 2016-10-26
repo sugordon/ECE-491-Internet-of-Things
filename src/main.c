@@ -1,185 +1,194 @@
+// ------------------------------ //
+// ------ Headers & Macros ------ //
+// ------------------------------ //
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <math.h>
-#include "tm_stm32f4_usart.h"
+
 #include "stm32f4xx_conf.h"
 
 #define BUFFER_SIZE 16
 
-void INTTIM_Config();
-TIM_TimeBaseInitTypeDef  TIM_TimeBaseStructure;
+// -------------------------------- //
+// --- Prototypes & Definitions --- //
+// -------------------------------- //
 
 // Private variables
 volatile uint32_t time_var1, time_var2, debounce;
 volatile char received_buffer[BUFFER_SIZE+1];
 
-void init();
-void Delay(volatile uint32_t nCount);
-void incrementCounter();
-void EXTI0_IRQHandler(void);
-void Configure_PA0(void);
+// Used to store clock frequencies, for debugging
+RCC_ClocksTypeDef clkfreqs;
+
+void InitPLL(void);
+void InitUSART(void);
+void InitGPIOD(void);
+void InitDAC(void);
+
 void SendData(USART_TypeDef* USARTx, volatile char *s);
-void USARTCommandReceived(char * command);
-void ClearCommand();
 
-//writes out a string to the passed in usart. The string is passed as a pointer
-void SendData(USART_TypeDef* USARTx, volatile char *s){
+void IncrementCounter();
+void Delay(volatile uint32_t nCount);
 
-    while(*s){
-	// wait until data register is empty
-	while( !(USARTx->SR & 0x00000040) );
-	USART_SendData(USARTx, *s);
-	*s++;
-    }
-}
+void INTPA0_Config();
+void INTTIM2_Config();
+void TIM2_IRQHandler(void);
+void EXTI0_IRQHandler(void);
+
+// --------------------------- //
+// ---------- Main ----------- //
+// --------------------------- //
 
 int main(void) {
-    init();
-    SendData(USART2, "hello world");
 
-    /*int LED_MASK = 0b1111 << 12;*/
-    /*while(1) {*/
-    /*GPIOD->ODR += (1 << 12);*/
-    /*if(GPIOD->ODR & LED_MASK == 0b1111) */
-    /*GPIOD->ODR ^= 0b1111 << 12;*/
-    /*Delay(500);*/
-    /*}*/
+    INTTIM2_Config();
+    INTPA0_Config();
+    
+    InitPLL()
+    InitUSART();
+    InitGPIOD();
+    //InitDAC();
 
+    SendDebug();
 
     for(;;) {
+        //SendData(USART2, "hello world");
     }
 
     return 0;
 }
 
-//This method is executed when data is received on the RX line (this is the interrupt), this method can process the
-//data thats been received and decide what to do. It is executed for each character received, it reads each character
-//and checks to see if it received the enter key (ascii code 13) or if the total number of characters received is greater
-//that the buffer size.
-//Note that there is no reference to this method in our setup code, this is because the name of this method is defined in the
-//startup_stm32f4xx.S (you can find this in the startup_src folder). When listening for interrupts from USART 2 or 3 you would
-//define methods named USART2_IRQHandler or USART3_IRQHandler
-/*void USART1_IRQHandler(void){*/
-/*//check the type of interrupt to make sure we have received some data.*/
-/*if( USART_GetITStatus(USART1, USART_IT_RXNE) ){*/
-/*char t = USART1->DR; //Read the character that we have received*/
+// -------------------------- //
+// --------- Debug ---------- //
+// -------------------------- //
 
-/*if( (DataReceivedCounter < BUFFER_SIZE) && t != 13 ){*/
-/*received_buffer[DataReceivedCounter] = t;*/
-/*DataReceivedCounter++;*/
-/*}*/
-/*else{ // otherwise reset the character counter and print the received string*/
-/*DataReceivedCounter = 0;*/
-/*//only raise a command event if the enter key was pressed otherwise just clear*/
-/*if(t == 13){*/
-/*USARTCommandReceived(received_buffer);*/
-/*}*/
+// This should be done after USART is configured
+void SendDebug() {
 
-/*ClearCommand();*/
+	// Check the SYSCLK source
+	SendData(USART2, "SYSCLK source: ");
+    SendData(USART2, &(RCC_GetSYSCLKSource())); // 0x08 if PLL
+    SendData(USART2, "\n");
 
-/*}*/
-/*}*/
-/*}*/
-
-//this method is called when a command is received from the USART, a command is only received when enter
-//is pressed, if the buffer length is exceeded the buffer is cleared without raising a command
-/*void USARTCommandReceived(char * command){*/
-/*SendData(USART1, received_buffer);*/
-
-/*if        (compare(command, "L5ON") == 0){*/
-/*STM_EVAL_LEDOn(LED5);*/
-/*}else 	if(compare(command, "L5OFF") == 0){*/
-/*STM_EVAL_LEDOff(LED5);*/
-
-/*}else 	if(compare(command, "L6ON") == 0){*/
-/*STM_EVAL_LEDOn(LED6);*/
-/*}else 	if(compare(command, "L6OFF") == 0){*/
-/*STM_EVAL_LEDOff(LED6);*/
-
-/*}else 	if(compare(command, "L3ON") == 0){*/
-/*STM_EVAL_LEDOn(LED3);*/
-/*}else 	if(compare(command, "L3OFF") == 0){*/
-/*STM_EVAL_LEDOff(LED3);*/
-
-/*}else 	if(compare(command, "L4ON") == 0){*/
-/*STM_EVAL_LEDOn(LED4);*/
-/*}else 	if(compare(command, "L4OFF") == 0){*/
-/*STM_EVAL_LEDOff(LED4);*/
-/*}*/
-/*}*/
-/*void ClearCommand(){*/
-/*int i =0;*/
-/*for(i=0;i < BUFFER_SIZE; i++){*/
-/*received_buffer[i] = 0;*/
-/*}*/
-
-/*}*/
-
-/*
- * Delay a number of systick cycles (1ms)
- */
-void Delay(volatile uint32_t nCount) {
-    time_var1 = nCount;
-    while(time_var1){};
+    // Check SYSCLK, AHB, APB1 frequencies
+    SendData(USART2, "SYS/PLL: ");
+    SendData(USART2, &(clkfreqs.SYSCLK_Frequency));
+    SendData(USART2, "\n");
+    SendData(USART2, "AHB: ");
+    SendData(USART2, &(clkfreqs.HCLK_Frequency));
+    SendData(USART2, "\n");
+    SendData(USART2, "APB1: ");
+    SendData(USART2, &(clkfreqs.PCLK1_Frequency));
+    SendData(USART2, "\n");
 }
 
-/*
-   void calculation_test() {
-   float a = 1.001;
-   int iteration = 0;
+// -------------------------- //
+// ---------- PLL ----------- //
+// -------------------------- //
 
-   for(;;) {
-   int value = iteration % 4;
-   switch (value) {
-   case 0:
-   GPIO_ResetBits(GPIOD, GPIO_Pin_14);
-   GPIO_ResetBits(GPIOD, GPIO_Pin_12);
-   break;
-   case 1:
-   GPIO_SetBits(GPIOD, GPIO_Pin_12);
-   GPIO_ResetBits(GPIOD, GPIO_Pin_14);
-   break;
-   case 2:
-   GPIO_SetBits(GPIOD, GPIO_Pin_14);
-   GPIO_ResetBits(GPIOD, GPIO_Pin_12); break;
-   case 3:
-   GPIO_SetBits(GPIOD, GPIO_Pin_14);
-   GPIO_SetBits(GPIOD, GPIO_Pin_12);
-   break;
-   }
+void InitPLL(void) {
 
-   Delay(1000);
+    /* Configure PLL output */
+    uint32_t PLLM = 8, PLLN = 96, PLLP = 2, PLLQ = 2;
+    RCC_PLLConfig(RCC_PLLSource_HSI, PLLM, PLLN, PLLP, PLLQ); // fPLL = fHSI*N/(M*P) = 96MHz
 
-   time_var2 = 0;
-   for (int i = 0;i < 1000000;i++) {
-   a += 0.01 * sqrtf(a);
-   }
+    /* Wait until PLL is ready */
+    while(!RCC_GetFlagStatus(RCC_FLAG_PLLRDY));
 
-   printf("Time:      %lu\n", time_var2);
-   printf("Iteration: %i\n", iteration);
-   printf("Value:     %lu\n", (unsigned long)a);
-//		printf("Value F:   %.5f\n", -a);
-printf("Value F2:  %s\n\n", ftostr(-a, 5));
-
-iteration++;
+    /* Use PLL as system clock */
+    RCC_SYSCLKConfig(RCC_SYSCLKSource_PLLCLK); // change SYSCLK to PLL
+    //fprintf(stderr, "SYSCLK source: %d\n", RCC_GetSYSCLKSource());
 }
-}
-*/
 
-void init() {
-    GPIO_InitTypeDef  GPIO_InitStructure;
+// ---------------------------- //
+// ---------- USART ----------- //
+// ---------------------------- //
+
+/* Configure USART parameters, esp. baud rate */
+void InitUSART(void) {
+
+    GPIO_InitTypeDef GPIO_InitStructure;
     USART_InitTypeDef USART_InitStructure;
-    //	DAC_InitTypeDef  DAC_InitStructure;
 
-    // ---------- SysTick timer -------- //
-    //if (SysTick_Config(SystemCoreClock / 1000)) {
-    // Capture error
-    //	while (1){};
-    //}
+    // Clock
 
-    INTTIM_Config();
-    Configure_PA0();
+    /* Configure AHB and APB1 for USART clock */
+    RCC_HCLKConfig(RCC_SYSCLK_Div2); // fAHB = fSYS/2 = 48MHz
+    RCC_PCLK1Config(RCC_HCLK_Div2); // fAPB1 = fAHB/2 = 24MHz
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE); // turn on AHB
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2, ENABLE); // turn on APB1
+
+    /* Software debugging; check clock frequencies */
+    RCC_GetClocksFreq(&clkfreqs);
+    //fprintf(stderr, "SYS/PLL: %d\n", clkfreqs.SYSCLK_Frequency);
+    //fprintf(stderr, "AHB: %d\n", clkfreqs.HCLK_Frequency);
+    //fprintf(stderr, "APB1: %d\n", clkfreqs.PCLK1_Frequency);
+
+    /* Physical debugging; check MCO1/MCO2 with O-scope */
+    RCC_MCO2Config(RCC_MCO2Source_SYSCLK, RCC_MCO2Div_1); // check SYSCLK w/ no division
+    // RCC_MCO2Source_SYSCLK: System clock (SYSCLK) selected as MCO2 source
+    // RCC_MCO2Source_HSE: HSE clock selected as MCO2 source
+    // RCC_MCO2Source_PLLCLK: main PLL clock selected as MCO2 source
+    RCC_MCO1Config(RCC_MCO1Source_PLLCLK, RCC_MCO1Div_1); // check another clock with no division
+    // RCC_MCO1Source_HSI: HSI clock selected as MCO1 source
+    // RCC_MCO1Source_LSE: LSE clock selected as MCO1 source
+    // RCC_MCO1Source_HSE: HSE clock selected as MCO1 source
+    // RCC_MCO1Source_PLLCLK: main PLL clock selected as MCO1 source
+
+    // I/O
+
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2 | GPIO_Pin_3;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
+    GPIO_Init(GPIOA, &GPIO_InitStructure);
+
+    /* Use PA2 and PA3 for Tx and Rx */
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource2, GPIO_AF_USART2);
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource3, GPIO_AF_USART2);
+
+    // Conf
+
+    USART_OverSampling8Cmd(USART2, ENABLE); // oversample by 8 to increase baud rate cap
+
+    USART_InitStructure.USART_BaudRate = 2e6;
+    USART_InitStructure.USART_WordLength = USART_WordLength_8b;
+    USART_InitStructure.USART_StopBits = USART_StopBits_1;
+    USART_InitStructure.USART_Parity = USART_Parity_No;
+    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+    USART_InitStructure.USART_Mode = USART_Mode_Tx | USART_Mode_Rx;
+    USART_Init(USART2, &USART_InitStructure); // initialize with parameteters
+
+    // Enable the interrupt
+    /*USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);*/
+
+    // Enable
+    USART_Cmd(USART2, ENABLE);
+}
+
+/* Writes out a string to the passed in USART */
+/* The string is passed as a pointer */
+void SendData(USART_TypeDef* USARTx, volatile char *s){
+
+    while(*s) {
+        // wait until data register is empty
+        while( !(USARTx->SR & 0x00000040) );
+        USART_SendData(USARTx, *s);
+        *s++;
+    }
+}
+
+// ---------------------------- //
+// ---------- GPIOD ----------- //
+// ---------------------------- //
+
+/* Configure GPIOD output pins for LEDs */
+void InitGPIOD(void) {
+
+    GPIO_InitTypeDef GPIO_InitStructure;
 
     // GPIOD Periph clock enable
     RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOD, ENABLE);
@@ -191,42 +200,24 @@ void init() {
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
     GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
     GPIO_Init(GPIOD, &GPIO_InitStructure);
+}
 
+/* Use LEDs (GPIOD outputs) as a 4-bit binary counter */
+void IncrementCounter(void) {
 
-    // ------ UART ------ //
+    int LED_MASK = 0b1111 << 12;
+    GPIOD->ODR += (1 << 12);
+    if (GPIOD->ODR & (LED_MASK == 0b1111))
+        GPIOD->ODR ^= 0b1111 << 12;
+}
 
-    // Clock
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2, ENABLE);
-    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);
+// -------------------------- //
+// ---------- DAC ----------- //
+// -------------------------- //
 
-    // IO
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2 | GPIO_Pin_3;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
-    GPIO_Init(GPIOA, &GPIO_InitStructure);
+void InitDAC(void) {
 
-    GPIO_PinAFConfig(GPIOA, GPIO_PinSource2, GPIO_AF_USART2);
-    GPIO_PinAFConfig(GPIOA, GPIO_PinSource3, GPIO_AF_USART2);
-
-    // Conf
-    USART_InitStructure.USART_BaudRate = 9600;
-    USART_InitStructure.USART_WordLength = USART_WordLength_8b;
-    USART_InitStructure.USART_StopBits = USART_StopBits_1;
-    USART_InitStructure.USART_Parity = USART_Parity_No;
-    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
-    USART_InitStructure.USART_Mode = USART_Mode_Tx | USART_Mode_Rx;
-    USART_Init(USART2, &USART_InitStructure);
-
-    //Enable the interupt
-    /*USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);*/
-
-    // Enable
-    USART_Cmd(USART2, ENABLE);
-
-
-    // ---------- DAC ---------- //
+    DAC_InitTypeDef DAC_InitStructure;
 
     // Clock
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_DAC, ENABLE);
@@ -251,47 +242,29 @@ void init() {
     //DAC_SetChannel1Data(DAC_Align_12b_R, 0);
 }
 
-/*
- * Called from systick handler
- *
- void timing_handler() {
- int value = (time_var2/5000) % 4;
- switch (value) {
- case 0:
- GPIO_ResetBits(GPIOD, GPIO_Pin_14);
- GPIO_ResetBits(GPIOD, GPIO_Pin_12);
- break;
- case 1:
- GPIO_SetBits(GPIOD, GPIO_Pin_12);
- GPIO_ResetBits(GPIOD, GPIO_Pin_14);
- break;
- case 2:
- GPIO_SetBits(GPIOD, GPIO_Pin_14);
- GPIO_ResetBits(GPIOD, GPIO_Pin_12);
- break;
- case 3:
- GPIO_SetBits(GPIOD, GPIO_Pin_14);
- GPIO_SetBits(GPIOD, GPIO_Pin_12);
- break;
- }
- if (time_var1) {
- time_var1--;
- }
+// ---------------------------- //
+// ---------- Delay ----------- //
+// ---------------------------- //
 
- time_var2++;
- }
- */
+/* Delay a number of systick cycles (1ms) */
+void Delay(volatile uint32_t nCount) {
+    time_var1 = nCount;
+    while(time_var1){};
+}
 
-/* Configure pins to be interrupts */
-void Configure_PA0(void) {
-    /* Set variables used */
+// --------------------------------- //
+// ---------- Interrupts ----------- //
+// --------------------------------- //
+
+/* Configure external input interrupt (pin PD0) */
+void INTPD0_Config(void) {
+
     GPIO_InitTypeDef GPIO_InitStruct;
     EXTI_InitTypeDef EXTI_InitStruct;
     NVIC_InitTypeDef NVIC_InitStruct;
 
-    /* Enable clock for GPIOD */
+    /* Enable clocks for GPIOD and SYSCGF */
     RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOD, ENABLE);
-    /* Enable clock for SYSCFG */
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_SYSCFG, ENABLE);
 
     /* Set pin as input */
@@ -329,54 +302,13 @@ void Configure_PA0(void) {
     NVIC_Init(&NVIC_InitStruct);
 }
 
-/* Set interrupt handlers */
-/* Handle PD0 interrupt */
-void EXTI0_IRQHandler(void) {
-    /* Make sure that interrupt flag is set */
-    if (EXTI_GetITStatus(EXTI_Line0) != RESET) {
-	if (debounce == 0) {
-	    incrementCounter();
-	      /*SendData(USART2, "tecsploits USART connection initialised, visit us @tecsploit.com");*/
-	    TM_USART_Puts(USART2, "Hello world\n\r");
-	    debounce = 500;
-	}
-
-	/* Clear interrupt flag */
-	EXTI_ClearITPendingBit(EXTI_Line0);
-    }
-}
-
-void incrementCounter(void)
-{
-    int LED_MASK = 0b1111 << 12;
-    GPIOD->ODR += (1 << 12);
-    if(GPIOD->ODR & (LED_MASK == 0b1111))
-	GPIOD->ODR ^= 0b1111 << 12;
-}
-
-
-void TIM2_IRQHandler(void)
-{
-    if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET) {
-	TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
-	if (time_var1) {
-	    time_var1--;
-	}
-	time_var2++;
-	if (debounce) {
-	    debounce--;
-	}
-	if (time_var2 % 100 == 0) {
-	    //Do stuff
-	}
-    }
-}
-
-void INTTIM_Config(void) {
+/* Configure timer interrupt (TIM2) */
+void INTTIM2_Config(void) {
 
     NVIC_InitTypeDef NVIC_InitStructure;
+    TIM_TimeBaseInitTypeDef TIM_TimeBaseStructure;
 
-    /* Enable the TIM2 gloabal Interrupt */
+    /* Enable the TIM2 global Interrupt */
     NVIC_InitStructure.NVIC_IRQChannel = TIM2_IRQn;
     NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;
     NVIC_InitStructure.NVIC_IRQChannelSubPriority = 1;
@@ -400,10 +332,43 @@ void INTTIM_Config(void) {
     TIM_Cmd(TIM2, ENABLE);
 }
 
+/* Handle PD0 interrupt */
+void EXTI0_IRQHandler(void) {
+
+    /* Make sure that interrupt flag is set */
+    if (EXTI_GetITStatus(EXTI_Line0) != RESET) {
+    	if (debounce == 0) {
+    	    incrementCounter();
+    	    SendData(USART2, "Hello world\n\r");
+    	    debounce = 500;
+    	}
+
+    	/* Clear interrupt flag */
+    	EXTI_ClearITPendingBit(EXTI_Line0);
+    }
+}
+
+/* Handle timer interrupt */
+void TIM2_IRQHandler(void) {
+
+    if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET) {
+    	TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
+    	if (time_var1) {
+    	    time_var1--;
+    	}
+    	time_var2++;
+    	if (debounce) { // debounce pin 0
+    	    debounce--;
+    	}
+    	if (time_var2 % 100 == 0) {
+            //Do stuff
+            //IncrementCounter();
+    	}
+    }
+}
 
 /*
  * Dummy function to avoid compiler error
  */
 void _init() {
 }
-
