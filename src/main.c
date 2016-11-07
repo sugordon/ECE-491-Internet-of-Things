@@ -19,12 +19,9 @@
 volatile uint32_t time_var1, time_var2, debounce;
 volatile char received_buffer[BUFFER_SIZE+1];
 
-// Used to store clock frequencies, for debugging
-RCC_ClocksTypeDef clkfreqs;
-
 void InitPLL(void);
 void InitUSART(void);
-void InitGPIOD(void);
+void InitGPIO(void);
 void InitDAC(void);
 
 void SendData(USART_TypeDef* USARTx, volatile char *s);
@@ -44,19 +41,67 @@ void SendDebug(void);
 
 int main(void) {
 
+    /* Configure interrupts */
     INTTIM2_Config();
     INTPD0_Config();
     
+    /* Configure microcontroller */
+    RCC_DeInit(); // default settings so that PLL can be configured
     InitPLL();
     InitUSART();
-    InitGPIOD();
+    InitGPIO();
     //InitDAC();
 
     SendDebug();
+    
+    /* Set up mp3 decoder */
+    /*
+    MP3FrameInfo mp3FrameInfo;
+    HMP3Decoder hMP3Decoder;
+    hMP3Decoder = MP3InitDecoder();
+
+    int offset, err;
+    static const char *read_ptr = mp3_data;
 
     for(;;) {
-        //SendData(USART2, "hello world");
+
+        offset = MP3FindSyncWord((unsigned char*)read_ptr, bytes_left);
+        bytes_left -= offset;
+
+        // skip the end of the song, maybe to loop faster?
+        if (bytes_left <= 10000) {
+            read_ptr = mp3_data;
+            bytes_left = MP3_SIZE;
+            offset = MP3FindSyncWord((unsigned char*)read_ptr, bytes_left);
+        }
+
+        read_ptr += offset;
+        err = MP3Decode(hMP3Decoder, (unsigned char**)&read_ptr, &bytes_left, samples, 0);
+
+        if (err) {
+            // error occurred
+            switch (err) {
+            case ERR_MP3_INDATA_UNDERFLOW:
+                outOfData = 1;
+                break;
+            case ERR_MP3_MAINDATA_UNDERFLOW:
+                // do nothing - next call to decode will provide more mainData
+                break;
+            case ERR_MP3_FREE_BITRATE_SYNC:
+            default:
+                outOfData = 1;
+                break;
+            }
+        } else {
+            // no error
+            MP3GetLastFrameInfo(hMP3Decoder, &mp3FrameInfo);
+        }
+
+        if (!outOfData) {
+            ProvideAudioBuffer(samples, mp3FrameInfo.outputSamps);
+        }
     }
+    */
 
     return 0;
 }
@@ -68,19 +113,40 @@ int main(void) {
 // This should be done after USART is configured
 void SendDebug() {
 
+
     char buffer[256];
     for (int i = 0; i < 256; i++) {
         buffer[i] = 0;
     }
 
+    /* Check SYSCLK source, should be 0x08 if PLL */
     sprintf(buffer, "SYSCLK source: %d\n", RCC_GetSYSCLKSource());
     SendData(USART2, buffer);
-     /*Check SYSCLK, AHB, APB1 frequencies*/
-    sprintf(buffer, "SYS/PLL: %d\n", (int)clkfreqs.SYSCLK_Frequency);
+
+    /* Check prescalers, HSI, VCO, SYSCLK, AHB, APB1 frequencies */
+    sprintf(buffer, "fHSI: %lu\n", HSI_VALUE); // 16MHz
     SendData(USART2, buffer);
-    sprintf(buffer, "AHB: %d\n", (int)clkfreqs.HCLK_Frequency);
+
+    int pllm = RCC->PLLCFGR & RCC_PLLCFGR_PLLM;
+    int plln = (RCC->PLLCFGR & RCC_PLLCFGR_PLLN) >> 6;
+    int pllvco = HSI_VALUE * plln / pllm;
+    sprintf(buffer, "PLLN: %d\n", plln);    // 8
     SendData(USART2, buffer);
-    sprintf(buffer, "APB1: %d\n", (int)clkfreqs.PCLK1_Frequency);
+    sprintf(buffer, "PLLM: %d\n", pllm);    // 96
+    SendData(USART2, buffer);
+    sprintf(buffer, "fVCO: %d\n", pllvco);  // 192MHz
+    SendData(USART2, buffer);
+
+    RCC_ClocksTypeDef clkfreqs;
+    RCC_GetClocksFreq(&clkfreqs);
+    int pllp = (((RCC->PLLCFGR & RCC_PLLCFGR_PLLP) >> 16) + 1 ) * 2;
+    sprintf(buffer, "PLLP: %d\n", pllp);    // 2
+    SendData(USART2, buffer);
+    sprintf(buffer, "fSYS/fPLL: %d\n", (int)clkfreqs.SYSCLK_Frequency); // 96MHz
+    SendData(USART2, buffer);
+    sprintf(buffer, "fAHB: %d\n", (int)clkfreqs.HCLK_Frequency);         // 48MHz
+    SendData(USART2, buffer);
+    sprintf(buffer, "fAPB1: %d\n", (int)clkfreqs.PCLK1_Frequency);       // 24MHz
     SendData(USART2, buffer);
 }
 
@@ -90,9 +156,15 @@ void SendDebug() {
 
 void InitPLL(void) {
 
+    /* Disable PLL before configuring */
+    RCC_PLLCmd(DISABLE);
+
     /* Configure PLL output */
     uint32_t PLLM = 8, PLLN = 96, PLLP = 2, PLLQ = 2;
     RCC_PLLConfig(RCC_PLLSource_HSI, PLLM, PLLN, PLLP, PLLQ); // fPLL = fHSI*N/(M*P) = 96MHz
+
+    /* Enable PLL after configuring */
+    RCC_PLLCmd(ENABLE);
 
     /* Wait until PLL is ready */
     while(!RCC_GetFlagStatus(RCC_FLAG_PLLRDY));
@@ -117,14 +189,8 @@ void InitUSART(void) {
     /* Configure AHB and APB1 for USART clock */
     RCC_HCLKConfig(RCC_SYSCLK_Div2); // fAHB = fSYS/2 = 48MHz
     RCC_PCLK1Config(RCC_HCLK_Div2); // fAPB1 = fAHB/2 = 24MHz
-    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE); // turn on AHB
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE); // turn on AHB for Tx/Rx
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2, ENABLE); // turn on APB1
-
-    /* Software debugging; check clock frequencies */
-    RCC_GetClocksFreq(&clkfreqs);
-    //fprintf(stderr, "SYS/PLL: %d\n", clkfreqs.SYSCLK_Frequency);
-    //fprintf(stderr, "AHB: %d\n", clkfreqs.HCLK_Frequency);
-    //fprintf(stderr, "APB1: %d\n", clkfreqs.PCLK1_Frequency);
 
     /* Physical debugging; check MCO1/MCO2 with O-scope */
     RCC_MCO2Config(RCC_MCO2Source_SYSCLK, RCC_MCO2Div_1); // check SYSCLK w/ no division
@@ -186,7 +252,7 @@ void SendData(USART_TypeDef* USARTx, volatile char *s){
 // --------------------------- //
 
 /* Configure GPIO pins */
-void InitGPIOD(void) {
+void InitGPIO(void) {
 
     GPIO_InitTypeDef GPIO_InitStructure;
 
@@ -214,7 +280,7 @@ void InitGPIOD(void) {
     GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
     GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(GPIOD, &GPIO_InitStructure);
+    GPIO_Init(GPIOA, &GPIO_InitStructure);
 
     // Configure PC9 in output mode
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9;
@@ -222,7 +288,7 @@ void InitGPIOD(void) {
     GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
     GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(GPIOD, &GPIO_InitStructure);
+    GPIO_Init(GPIOC, &GPIO_InitStructure);
 }
 
 /* Use LEDs (GPIOD outputs) as a 4-bit binary counter */
@@ -300,7 +366,7 @@ void INTPD0_Config(void) {
     GPIO_Init(GPIOD, &GPIO_InitStruct);
 
     /* Tell system that you will use PD0 for EXTI_Line0 */
-    SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOA, EXTI_PinSource0);
+    SYSCFG_EXTILineConfig(EXTI_PortSourceGPIOD, EXTI_PinSource0);
 
     /* PD0 is connected to EXTI_Line0 */
     EXTI_InitStruct.EXTI_Line = EXTI_Line0;
@@ -361,14 +427,14 @@ void EXTI0_IRQHandler(void) {
 
     /* Make sure that interrupt flag is set */
     if (EXTI_GetITStatus(EXTI_Line0) != RESET) {
-    	if (debounce == 0) {
-    	    IncrementCounter();
-    	    SendData(USART2, "Hello world\n\r");
-    	    debounce = 500;
-    	}
+        if (debounce == 0) {
+            IncrementCounter();
+            SendData(USART2, "Hello world\n\r");
+            debounce = 500;
+        }
 
-    	/* Clear interrupt flag */
-    	EXTI_ClearITPendingBit(EXTI_Line0);
+        /* Clear interrupt flag */
+        EXTI_ClearITPendingBit(EXTI_Line0);
     }
 }
 
@@ -376,18 +442,18 @@ void EXTI0_IRQHandler(void) {
 void TIM2_IRQHandler(void) {
 
     if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET) {
-    	TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
-    	if (time_var1) {
-    	    time_var1--;
-    	}
-    	time_var2++;
-    	if (debounce) { // debounce pin 0
-    	    debounce--;
-    	}
-    	if (time_var2 % 100 == 0) {
+        TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
+        if (time_var1) {
+            time_var1--;
+        }
+        time_var2++;
+        if (debounce) { // debounce pin 0
+            debounce--;
+        }
+        if (time_var2 % 100 == 0) {
             //Do stuff
             //IncrementCounter();
-    	}
+        }
     }
 }
 
