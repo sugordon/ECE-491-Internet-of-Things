@@ -1,3 +1,11 @@
+/*
+ * Course:          ECE491 Internet of Things
+ * Instructors:     Alin Cosmanescu, Jared Harwayne-Gidansky
+ * Project:         BT speaker with MP3 decoding
+ * Group members:   Arber Duka, Jeffrey Shih, Gordon Su, Jerry Qiu
+ *
+ */
+
 // ------------------------------ //
 // ------ Headers & Macros ------ //
 // ------------------------------ //
@@ -8,32 +16,50 @@
 #include <math.h>
 
 #include "stm32f4xx_conf.h"
+#include "mp3dec.h"
 
-#define BUFFER_SIZE 16
+#define BUFFER_SIZE 2048 // number of audio samples is 1152?
+//FrameSize = 144 * BitRate / (SampleRate + Padding)
+
+//#define MP3DECODE
 
 // -------------------------------- //
 // --- Prototypes & Definitions --- //
 // -------------------------------- //
 
-// Private variables
-volatile uint32_t time_var1, time_var2, debounce;
-volatile char received_buffer[BUFFER_SIZE+1];
+/* Private variables */
 
-void InitPLL(void);
+volatile uint32_t time_var1, time_var2, debounce;
+
+volatile char sent_buffer[257];
+volatile char received_buffer[BUFFER_SIZE+1];
+static int16_t audio_buffer[BUFFER_SIZE];
+
+MP3FrameInfo mp3FrameInfo;
+HMP3Decoder hMP3Decoder;
+
+/* Function prototypes */
+
+void InitSYSCLK(void);
 void InitUSART(void);
 void InitGPIO(void);
 void InitDAC(void);
 
 void SendData(USART_TypeDef* USARTx, volatile char *s);
+void ReceiveData(UsART_TypeDef *USARTx);
 
-void IncrementCounter();
+void SendDebug(void);
+
+void DecodeMP3Data(void);
+void SendMP3FrameInfo(void);
+void IncrementCounter(void);
+
 void Delay(volatile uint32_t nCount);
 
 void INTPD0_Config();
 void INTTIM2_Config();
 void TIM2_IRQHandler(void);
 void EXTI0_IRQHandler(void);
-void SendDebug(void);
 
 // --------------------------- //
 // ---------- Main ----------- //
@@ -41,67 +67,28 @@ void SendDebug(void);
 
 int main(void) {
 
+    /* Configure microcontroller */
+    InitSYSCLK();
+    InitGPIO();
+    InitUSART();
+    //InitDAC();
+
     /* Configure interrupts */
     INTTIM2_Config();
     INTPD0_Config();
-    
-    /* Configure microcontroller */
-    RCC_DeInit(); // default settings so that PLL can be configured
-    InitPLL();
-    InitUSART();
-    InitGPIO();
-    //InitDAC();
 
+    /* Debug stats */
     SendDebug();
     
-    /* Set up mp3 decoder */
-    /*
-    MP3FrameInfo mp3FrameInfo;
-    HMP3Decoder hMP3Decoder;
+    /* Set up MP3 decoder */
     hMP3Decoder = MP3InitDecoder();
 
-    int offset, err;
-    static const char *read_ptr = mp3_data;
-
     for(;;) {
-
-        offset = MP3FindSyncWord((unsigned char*)read_ptr, bytes_left);
-        bytes_left -= offset;
-
-        // skip the end of the song, maybe to loop faster?
-        if (bytes_left <= 10000) {
-            read_ptr = mp3_data;
-            bytes_left = MP3_SIZE;
-            offset = MP3FindSyncWord((unsigned char*)read_ptr, bytes_left);
-        }
-
-        read_ptr += offset;
-        err = MP3Decode(hMP3Decoder, (unsigned char**)&read_ptr, &bytes_left, samples, 0);
-
-        if (err) {
-            // error occurred
-            switch (err) {
-            case ERR_MP3_INDATA_UNDERFLOW:
-                outOfData = 1;
-                break;
-            case ERR_MP3_MAINDATA_UNDERFLOW:
-                // do nothing - next call to decode will provide more mainData
-                break;
-            case ERR_MP3_FREE_BITRATE_SYNC:
-            default:
-                outOfData = 1;
-                break;
-            }
-        } else {
-            // no error
-            MP3GetLastFrameInfo(hMP3Decoder, &mp3FrameInfo);
-        }
-
-        if (!outOfData) {
-            ProvideAudioBuffer(samples, mp3FrameInfo.outputSamps);
-        }
+        #ifdef MP3DECODE
+        ReceiveData(USART2);
+        DecodeMP3Data();
+        #endif
     }
-    */
 
     return 0;
 }
@@ -111,50 +98,137 @@ int main(void) {
 // -------------------------- //
 
 // This should be done after USART is configured
-void SendDebug() {
+void SendDebug(void) {
 
-
-    char buffer[256];
-    for (int i = 0; i < 256; i++) {
+    /*
+    for (int i = 0; i < sizeof(sent_buffer); i++) {
         buffer[i] = 0;
     }
+    */
 
     /* Check SYSCLK source, should be 0x08 if PLL */
-    sprintf(buffer, "SYSCLK source: %d\n", RCC_GetSYSCLKSource());
-    SendData(USART2, buffer);
+    sprintf(sent_buffer, "SYSCLK source: %d\n", RCC_GetSYSCLKSource());
+    SendData(USART2, sent_buffer);
 
     /* Check prescalers, HSI, VCO, SYSCLK, AHB, APB1 frequencies */
-    sprintf(buffer, "fHSI: %lu\n", HSI_VALUE); // 16MHz
-    SendData(USART2, buffer);
+    sprintf(sent_buffer, "fHSI: %d\n", HSI_VALUE); // 16MHz
+    SendData(USART2, sent_buffer);
 
-    int pllm = RCC->PLLCFGR & RCC_PLLCFGR_PLLM;
-    int plln = (RCC->PLLCFGR & RCC_PLLCFGR_PLLN) >> 6;
+    int pllm = RCC->PLLCFGR & RCC_PLLCFGR_PLLM
+    int plln = (RCC->PLLCFGR & RCC_PLLCFGR_PLLN) >> 6
     int pllvco = HSI_VALUE * plln / pllm;
-    sprintf(buffer, "PLLN: %d\n", plln);    // 8
-    SendData(USART2, buffer);
-    sprintf(buffer, "PLLM: %d\n", pllm);    // 96
-    SendData(USART2, buffer);
-    sprintf(buffer, "fVCO: %d\n", pllvco);  // 192MHz
-    SendData(USART2, buffer);
+    sprintf(sent_buffer, "PLLN: %d\n", plln);    // 8
+    SendData(USART2, sent_buffer);
+    sprintf(sent_buffer, "PLLM: %d\n", pllm);    // 96
+    SendData(USART2, sent_buffer);
+    sprintf(sent_buffer, "fVCO: %d\n", pllvco);  // 192MHz
+    SendData(USART2, sent_buffer);
 
     RCC_ClocksTypeDef clkfreqs;
     RCC_GetClocksFreq(&clkfreqs);
     int pllp = (((RCC->PLLCFGR & RCC_PLLCFGR_PLLP) >> 16) + 1 ) * 2;
-    sprintf(buffer, "PLLP: %d\n", pllp);    // 2
-    SendData(USART2, buffer);
-    sprintf(buffer, "fSYS/fPLL: %d\n", (int)clkfreqs.SYSCLK_Frequency); // 96MHz
-    SendData(USART2, buffer);
-    sprintf(buffer, "fAHB: %d\n", (int)clkfreqs.HCLK_Frequency);         // 48MHz
-    SendData(USART2, buffer);
-    sprintf(buffer, "fAPB1: %d\n", (int)clkfreqs.PCLK1_Frequency);       // 24MHz
-    SendData(USART2, buffer);
+    sprintf(sent_buffer, "PLLP: %d\n", pllp);    // 2
+    SendData(USART2, sent_buffer);
+    sprintf(sent_buffer, "fSYS/fPLL: %d\n", (int)clkfreqs.SYSCLK_Frequency); // 96MHz
+    SendData(USART2, sent_buffer);
+    sprintf(sent_buffer, "fAHB: %d\n", (int)clkfreqs.HCLK_Frequency);         // 48MHz
+    SendData(USART2, sent_buffer);
+    sprintf(sent_buffer, "fAPB1: %d\n", (int)clkfreqs.PCLK1_Frequency);       // 24MHz
+    SendData(USART2, sent_buffer);
 }
 
 // -------------------------- //
-// ---------- PLL ----------- //
+// ---------- MP3 ----------- //
 // -------------------------- //
 
-void InitPLL(void) {
+void DecodeMP3Data(void) {
+
+    int offset, err;
+    int bytes_left = BUFFER_SIZE;
+    char *mp3_ptr = received_buffer;
+    int16_t *samples = audio_buffer;
+
+    /* Get start of next frame */
+    offset = MP3FindSyncWord((unsigned char*)mp3_ptr, bytes_left);
+    if (offset == -1) {
+        SendData(USART2, "Sync not found.\n");
+        return;
+    }
+
+    /* Decode frame */
+    bytes_left -= offset;
+    mp3_ptr += offset;
+    err = MP3Decode(hMP3Decoder, (unsigned char**)&mp3_ptr, &bytes_left, samples, 0);
+    if (err) {
+        SendData("Error decoding MP3 frame: ");
+        switch (err) {
+            case ERR_MP3_INDATA_UNDERFLOW:
+                SendData("ERR_MP3_INDATA_UNDERFLOW.\n");
+                //outOfData = 1;
+                break;
+            case ERR_MP3_MAINDATA_UNDERFLOW:
+                // do nothing - next call to decode will provide more mainData
+                SendData("ERR_MP3_MAINDATA_UNDERFLOW.\n");
+                break;
+            case ERR_MP3_FREE_BITRATE_SYNC:
+                SendData("ERR_MP3_FREE_BITRATE_SYNC.\n");
+            default:
+                //outOfData = 1;
+                SendData("DEFAULT.\n");
+                break;
+        }
+    } else {
+        SendData(USART2, "Successfully decoded frame.\n");
+        SendData(USART2, "Decoded samples:");
+        SendData(USART2, (char *)samples);
+        SendData("\n");
+        MP3GetLastFrameInfo(hMP3Decoder, &mp3FrameInfo);
+        SendMP3FrameInfo();
+    }
+}
+
+void SendMP3FrameInfo(void) {
+    SendData("Decoded frame information:\n");
+    sprintf(sent_buffer, "Bitrate: %d\n", mp3DecInfo.bitrate);
+    SendData(USART2, sent_buffer);
+    sprintf(sent_buffer, "Bitrate: %d\n", mp3DecInfo.bitrate);
+    SendData(USART2, sent_buffer);
+    sprintf(sent_buffer, "Number of channels: %d\n", mp3DecInfo.nChans);
+    SendData(USART2, sent_buffer);
+    sprintf(sent_buffer, "Sample rate: %d\n", mp3DecInfo.samprate);
+    SendData(USART2, sent_buffer);
+    sprintf(sent_buffer, "Bits per sample: %d\n", mp3DecInfo.bitsPerSample);
+    SendData(USART2, sent_buffer);
+    sprintf(sent_buffer, "Output samples: %d\n", mp3DecInfo.outputSamps);
+    SendData(USART2, sent_buffer);
+    sprintf(sent_buffer, "Layer: %d\n", mp3DecInfo.layer);
+    SendData(USART2, sent_buffer);
+    sprintf(sent_buffer, "Version: %d\n", mp3DecInfo.version);
+    SendData(USART2, sent_buffer);
+}
+
+// -------------------------- //
+// -------- Counter --------- //
+// -------------------------- //
+
+/* Use LEDs (GPIOD outputs) as a 4-bit binary counter */
+void IncrementCounter(void) {
+
+    int LED_MASK = 0b1111 << 12;
+    GPIOD->ODR += (1 << 12);
+    if (GPIOD->ODR & (LED_MASK == 0b1111)) {
+        GPIOD->ODR ^= 0b1111 << 12;
+    }
+}
+
+// -------------------------- //
+// --------- SYSCLK --------- //
+// -------------------------- //
+
+void InitSYSCLK(void) {
+
+    /* Restore default settings so that PLL can be configured */
+    RCC_DeInit();
 
     /* Disable PLL before configuring */
     RCC_PLLCmd(DISABLE);
@@ -174,6 +248,59 @@ void InitPLL(void) {
     /*fprintf(stderr, "SYSCLK source: %d\n", RCC_GetSYSCLKSource());*/
 }
 
+// --------------------------- //
+// ---------- GPIO ----------- //
+// --------------------------- //
+
+/* Configure GPIO pins */
+void InitGPIO(void) {
+
+    GPIO_InitTypeDef GPIO_InitStructure;
+
+    /* Enable GPIO peripheral clocks */
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOC, ENABLE);
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOD, ENABLE);
+
+    /* Configure GPIOD output pins for LEDs (PD12, PD13, PD14 and PD15) */
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14| GPIO_Pin_15;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
+    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
+    GPIO_Init(GPIOD, &GPIO_InitStructure);
+
+    /* Configure GPIOA and GPIOC output pins for MCO1 (PA8), MCO2 (PC9) */
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
+    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
+    GPIO_Init(GPIOA, &GPIO_InitStructure);
+
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9;
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
+    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
+    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
+    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
+    GPIO_Init(GPIOC, &GPIO_InitStructure);
+
+    /* Configure PA8 and PC9 for alternate function */
+    GPIO_PinAFConfig(GPIOA, GPIO_PinSource8, GPIO_AF_MCO);
+    GPIO_PinAFConfig(GPIOC, GPIO_PinSource9, GPIO_AF_MCO);
+
+     /* Redirect clocks to MCO1 and MCO2, check with O-scope */
+    RCC_MCO2Config(RCC_MCO2Source_SYSCLK, RCC_MCO2Div_1); // check SYSCLK w/ no division
+    // RCC_MCO2Source_SYSCLK: System clock (SYSCLK) selected as MCO2 source
+    // RCC_MCO2Source_HSE: HSE clock selected as MCO2 source
+    // RCC_MCO2Source_PLLCLK: main PLL clock selected as MCO2 source
+    RCC_MCO1Config(RCC_MCO1Source_HSI, RCC_MCO1Div_1); // check another clock with no division
+    // RCC_MCO1Source_HSI: HSI clock selected as MCO1 source
+    // RCC_MCO1Source_LSE: LSE clock selected as MCO1 source
+    // RCC_MCO1Source_HSE: HSE clock selected as MCO1 source
+    // RCC_MCO1Source_PLLCLK: main PLL clock selected as MCO1 source
+}
+
 // ---------------------------- //
 // ---------- USART ----------- //
 // ---------------------------- //
@@ -191,17 +318,6 @@ void InitUSART(void) {
     RCC_PCLK1Config(RCC_HCLK_Div2); // fAPB1 = fAHB/2 = 24MHz
     RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE); // turn on AHB for Tx/Rx
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2, ENABLE); // turn on APB1
-
-    /* Physical debugging; check MCO1/MCO2 with O-scope */
-    RCC_MCO2Config(RCC_MCO2Source_SYSCLK, RCC_MCO2Div_1); // check SYSCLK w/ no division
-    // RCC_MCO2Source_SYSCLK: System clock (SYSCLK) selected as MCO2 source
-    // RCC_MCO2Source_HSE: HSE clock selected as MCO2 source
-    // RCC_MCO2Source_PLLCLK: main PLL clock selected as MCO2 source
-    RCC_MCO1Config(RCC_MCO1Source_HSI, RCC_MCO1Div_1); // check another clock with no division
-    // RCC_MCO1Source_HSI: HSI clock selected as MCO1 source
-    // RCC_MCO1Source_LSE: LSE clock selected as MCO1 source
-    // RCC_MCO1Source_HSE: HSE clock selected as MCO1 source
-    // RCC_MCO1Source_PLLCLK: main PLL clock selected as MCO1 source
 
     // I/O
 
@@ -237,67 +353,28 @@ void InitUSART(void) {
 
 /* Writes out a string to the passed in USART */
 /* The string is passed as a pointer */
-void SendData(USART_TypeDef* USARTx, volatile char *s){
+void SendData(USART_TypeDef* USARTx, volatile char *s) {
 
     while(*s) {
-        // wait until data register is empty
-        while( !(USARTx->SR & 0x00000040) );
+        // wait until previous transmission is complete
+        while(!USART_GetFlagStatus(USARTx, USART_FLAG_TC)); // TC in USART_SR reg
+        //while( !(USARTx->SR & 0x00000040) );
         USART_SendData(USARTx, *s);
-        *s++;
+        s++;
     }
 }
 
-// --------------------------- //
-// ---------- GPIO ----------- //
-// --------------------------- //
 
-/* Configure GPIO pins */
-void InitGPIO(void) {
+/* Receive data until the buffer is full */
+void ReceiveData(USART_TypeDef* USARTx){ 
 
-    GPIO_InitTypeDef GPIO_InitStructure;
-
-    /* Configure GPIOD output pins for LEDs */
-
-    // GPIOD Periph clock enable
-    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOD, ENABLE);
-
-    // Configure PD12, PD13, PD14 and PD15 in output pushpull mode
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_12 | GPIO_Pin_13| GPIO_Pin_14| GPIO_Pin_15;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
-    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
-    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(GPIOD, &GPIO_InitStructure);
-
-    /* Configure output pins for MCO1, MCO2 */
-    
-    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);
-    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOC, ENABLE);
-
-    // Configure PA8 in output mode
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_8;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
-    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
-    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(GPIOA, &GPIO_InitStructure);
-
-    // Configure PC9 in output mode
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT;
-    GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_100MHz;
-    GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(GPIOC, &GPIO_InitStructure);
-}
-
-/* Use LEDs (GPIOD outputs) as a 4-bit binary counter */
-void IncrementCounter(void) {
-
-    int LED_MASK = 0b1111 << 12;
-    GPIOD->ODR += (1 << 12);
-    if (GPIOD->ODR & (LED_MASK == 0b1111))
-        GPIOD->ODR ^= 0b1111 << 12;
+    int i;
+    for (i = 0; i < BUFFER_SIZE; i++) {
+        // wait until received data is ready to be read
+        while(!USART_GetFlagStatus(USARTx, USART_FLAG_RXNE)); // RXNE in USART_SR reg
+        received_buffer[i] = USART_ReceiveData(USARTx);
+    }
+    received_buffer[BUFFER_SIZE] = '\0'; // put in for now
 }
 
 // -------------------------- //
@@ -311,7 +388,7 @@ void InitDAC(void) {
 
     // Clock
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_DAC, ENABLE);
-    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);
+    //RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);
 
     // Configuration
     //DAC_InitStructure.DAC_Trigger = DAC_Trigger_None;
@@ -354,7 +431,7 @@ void INTPD0_Config(void) {
     NVIC_InitTypeDef NVIC_InitStruct;
 
     /* Enable clocks for GPIOD and SYSCGF */
-    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOD, ENABLE);
+    //RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOD, ENABLE);
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_SYSCFG, ENABLE);
 
     /* Set pin as input */
@@ -429,7 +506,8 @@ void EXTI0_IRQHandler(void) {
     if (EXTI_GetITStatus(EXTI_Line0) != RESET) {
         if (debounce == 0) {
             IncrementCounter();
-            SendData(USART2, "Hello world\n\r");
+            //SendData(USART2, "Hello world\n\r");
+            //MP3FreeDecoder(hMP3Decoder);
             debounce = 500;
         }
 
@@ -453,6 +531,7 @@ void TIM2_IRQHandler(void) {
         if (time_var2 % 100 == 0) {
             //Do stuff
             //IncrementCounter();
+            //DecodeMP3Data();
         }
     }
 }
