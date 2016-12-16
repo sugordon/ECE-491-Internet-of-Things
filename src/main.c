@@ -447,9 +447,7 @@ void TIM2_IRQHandler(void) {
                     tasks[i].elapsed_time = 0; // reset elapsed time
                 }
                 tasks[i].elapsed_time += TIMER_TICK;
-                SendData(USART2, "AAAA\n");
             }
-            SendData(USART2, "BBBB\n");
             isProcessing = 0;
             /*SendData(USART2, "BBBB\n");*/
         } else {
@@ -482,8 +480,8 @@ void Task2Function(void) {
         SendData(USART2, "INIT2\n");
         init = 0;
     } else { // Normal behavior
-        IncrementCounter();
-        /*SendData(USART2, "TASK2\n");*/
+        /*IncrementCounter();*/
+        SendData(USART2, "TASK2\n");
     }
     return;
 }

@@ -10,7 +10,7 @@
 
 // Function prototypes
 
-#define N_TASKS 3
+#define N_TASKS 2
 #define TIMER_TICK 10
 
 typedef struct task {
