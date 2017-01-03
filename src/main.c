@@ -95,33 +95,33 @@ void SendDebug() {
 
     /* Check SYSCLK source, should be 0x08 if PLL */
     sprintf(buffer, "SYSCLK source: %d\n", RCC_GetSYSCLKSource());
-    SendData(USART2, buffer);
+    SendData(USART3, buffer);
 
     /* Check prescalers, HSI, VCO, SYSCLK, AHB, APB1 frequencies */
     sprintf(buffer, "fHSI: %lu\n", HSI_VALUE); // 16MHz
-    SendData(USART2, buffer);
+    SendData(USART3, buffer);
 
     int pllm = RCC->PLLCFGR & RCC_PLLCFGR_PLLM;
     int plln = (RCC->PLLCFGR & RCC_PLLCFGR_PLLN) >> 6;
     int pllvco = HSI_VALUE * plln / pllm;
     sprintf(buffer, "PLLN: %d\n", plln);    // 8
-    SendData(USART2, buffer);
+    SendData(USART3, buffer);
     sprintf(buffer, "PLLM: %d\n", pllm);    // 96
-    SendData(USART2, buffer);
+    SendData(USART3, buffer);
     sprintf(buffer, "fVCO: %d\n", pllvco);  // 192MHz
-    SendData(USART2, buffer);
+    SendData(USART3, buffer);
 
     RCC_ClocksTypeDef clkfreqs;
     RCC_GetClocksFreq(&clkfreqs);
     int pllp = (((RCC->PLLCFGR & RCC_PLLCFGR_PLLP) >> 16) + 1 ) * 2;
     sprintf(buffer, "PLLP: %d\n", pllp);    // 2
-    SendData(USART2, buffer);
+    SendData(USART3, buffer);
     sprintf(buffer, "fSYS/fPLL: %d\n", (int)clkfreqs.SYSCLK_Frequency); // 96MHz
-    SendData(USART2, buffer);
+    SendData(USART3, buffer);
     sprintf(buffer, "fAHB: %d\n", (int)clkfreqs.HCLK_Frequency);         // 48MHz
-    SendData(USART2, buffer);
+    SendData(USART3, buffer);
     sprintf(buffer, "fAPB1: %d\n", (int)clkfreqs.PCLK1_Frequency);       // 24MHz
-    SendData(USART2, buffer);
+    SendData(USART3, buffer);
 }
 
 // -------------------------- //
@@ -163,8 +163,8 @@ void InitUSART(void) {
     /* Configure AHB and APB1 for USART clock */
     RCC_HCLKConfig(RCC_SYSCLK_Div2); // fAHB = fSYS/2 = 48MHz
     RCC_PCLK1Config(RCC_HCLK_Div2); // fAPB1 = fAHB/2 = 24MHz
-    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE); // turn on AHB for Tx/Rx
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART2, ENABLE); // turn on APB1
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOC, ENABLE); // turn on AHB for Tx/Rx
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_USART3, ENABLE); // turn on APB1
 
     /* Physical debugging; check MCO1/MCO2 with O-scope */
     RCC_MCO2Config(RCC_MCO2Source_SYSCLK, RCC_MCO2Div_1); // check SYSCLK w/ no division
@@ -179,20 +179,20 @@ void InitUSART(void) {
 
     // I/O
 
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_2 | GPIO_Pin_3;
+    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_10 | GPIO_Pin_11;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_InitStructure.GPIO_OType = GPIO_OType_PP;
     GPIO_InitStructure.GPIO_PuPd = GPIO_PuPd_UP;
-    GPIO_Init(GPIOA, &GPIO_InitStructure);
+    GPIO_Init(GPIOC, &GPIO_InitStructure);
 
-    /* Use PA2 and PA3 for Tx and Rx */
-    GPIO_PinAFConfig(GPIOA, GPIO_PinSource2, GPIO_AF_USART2);
-    GPIO_PinAFConfig(GPIOA, GPIO_PinSource3, GPIO_AF_USART2);
+    /* Use PA10 and PA11 for Tx and Rx */
+    GPIO_PinAFConfig(GPIOC, GPIO_PinSource10, GPIO_AF_USART3);
+    GPIO_PinAFConfig(GPIOC, GPIO_PinSource11, GPIO_AF_USART3);
 
     // Conf
 
-    USART_OverSampling8Cmd(USART2, ENABLE); // oversample by 8 to increase baud rate cap
+    USART_OverSampling8Cmd(USART3, ENABLE); // oversample by 8 to increase baud rate cap
 
     USART_InitStructure.USART_BaudRate = 2e6;
     USART_InitStructure.USART_WordLength = USART_WordLength_8b;
@@ -200,13 +200,13 @@ void InitUSART(void) {
     USART_InitStructure.USART_Parity = USART_Parity_No;
     USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
     USART_InitStructure.USART_Mode = USART_Mode_Tx | USART_Mode_Rx;
-    USART_Init(USART2, &USART_InitStructure); // initialize with parameteters
+    USART_Init(USART3, &USART_InitStructure); // initialize with parameteters
 
     // Enable the interrupt
-    /*USART_ITConfig(USART2, USART_IT_RXNE, ENABLE);*/
+    /*USART_ITConfig(USART3, USART_IT_RXNE, ENABLE);*/
 
     // Enable
-    USART_Cmd(USART2, ENABLE);
+    USART_Cmd(USART3, ENABLE);
 }
 
 /* Writes out a string to the passed in USART */
@@ -403,7 +403,7 @@ void EXTI0_IRQHandler(void) {
     if (EXTI_GetITStatus(EXTI_Line0) != RESET) {
         if (debounce == 0) {
             IncrementCounter();
-            SendData(USART2, "Hello world\n\r");
+            SendData(USART3, "Hello world\n\r");
             debounce = 500;
         }
 
@@ -435,7 +435,7 @@ void TIM2_IRQHandler(void) {
             }
 
             sprintf(buffer, "ip: %d\n", isProcessing);
-            SendData(USART2, buffer);
+            SendData(USART3, buffer);
         }
 
         if (isProcessing == 0) {
@@ -449,7 +449,7 @@ void TIM2_IRQHandler(void) {
                 tasks[i].elapsed_time += TIMER_TICK;
             }
             isProcessing = 0;
-            /*SendData(USART2, "BBBB\n");*/
+            /*SendData(USART3, "BBBB\n");*/
         } else {
             /*IncrementCounter();*/
         }
@@ -466,7 +466,7 @@ void _init() {
 void Task1Function(void) {
     static unsigned char init = 1;
     if (init) { // Initialization behavior
-        SendData(USART2, "INIT1\n");
+        SendData(USART3, "INIT1\n");
         init = 0;
     } else { // Normal behavior
         IncrementCounter();
@@ -477,11 +477,11 @@ void Task1Function(void) {
 void Task2Function(void) {
     static unsigned char init = 1;
     if (init) { // Initialization behavior
-        SendData(USART2, "INIT2\n");
+        SendData(USART3, "INIT2\n");
         init = 0;
     } else { // Normal behavior
         /*IncrementCounter();*/
-        SendData(USART2, "TASK2\n");
+        SendData(USART3, "TASK2\n");
     }
     return;
 }
@@ -491,7 +491,7 @@ void Task3Function(void) {
     if (init) { // Initialization behavior
         init = 0;
     } else { // Normal behavior
-        /*SendData(USART2, "TASK3");*/
+        /*SendData(USART3, "TASK3");*/
         IncrementCounter();
     }
 }
