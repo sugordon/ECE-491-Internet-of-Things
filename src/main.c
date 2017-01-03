@@ -8,6 +8,10 @@
 #include <math.h>
 
 #include "stm32f4xx_conf.h"
+#include "stm32f4x7_eth_bsp.h"
+#include "netconf.h"
+#include "tcp_echoserver.h"
+#include "serial_debug.h"
 #include "main.h"
 
 #define BUFFER_SIZE 16
@@ -17,19 +21,27 @@
 // -------------------------------- //
 
 // Private variables
+
 volatile uint32_t time_var1, time_var2, debounce;
 volatile char received_buffer[BUFFER_SIZE+1];
 
 volatile unsigned char isProcessing = 0; // flag indicating that tasks are being processed
 
+__IO uint32_t LocalTime = 0; /* this variable is used to create a time reference incremented by 10ms */
+
+
+// Functions
+
 void InitPLL(void);
 void InitUSART(void);
 void InitGPIO(void);
 void InitDAC(void);
+void InitEthernet(void);
 
 void SendData(USART_TypeDef* USARTx, volatile char *s);
+void IncrementCounter(void);
+void HandlePacket(void);
 
-void IncrementCounter();
 void Delay(volatile uint32_t nCount);
 
 void INTPD0_Config();
@@ -49,7 +61,7 @@ int main(void) {
     InitPLL();
     InitUSART();
     InitGPIO();
-
+    InitEthernet();
 
     unsigned char i = 0;
 
@@ -67,12 +79,12 @@ int main(void) {
     INTPD0_Config();
     INTTIM2_Config();
 
-
     //TimerSet(TIMER_TICK);
     //TimerOn();
     /*INTTIM_Config();*/
 
     while(1) {
+        HandlePacket();
         /*PWR_EnterSTANDBYMode();*/
     }
 
@@ -146,6 +158,36 @@ void InitPLL(void) {
     /* Use PLL as system clock */
     RCC_SYSCLKConfig(RCC_SYSCLKSource_PLLCLK); // change SYSCLK to PLL
     /*fprintf(stderr, "SYSCLK source: %d\n", RCC_GetSYSCLKSource());*/
+}
+
+
+// ---------------------------- //
+// --------- Ethernet --------- //
+// ---------------------------- //
+
+void InitEthernet(void) {
+
+    /* Configure Ethernet (GPIOs, clocks, MAC, DMA) */
+    ETH_BSP_Config();
+
+    /* Initialize the LwIP stack */
+    LwIP_Init();
+
+    /* Initialize TCP echo server */
+    tcp_echoserver_init();
+
+}
+
+// Put this in infinite loop or interrupt
+void HandlePacket(void) {
+
+    /* Check if any packet received */
+    if (ETH_CheckFrameReceived()) { 
+        /* process received ethernet packet*/
+        LwIP_Pkt_Handle();
+    }
+    /* handle periodic timers for LwIP*/
+    LwIP_Periodic_Handle(LocalTime);
 }
 
 // ---------------------------- //
