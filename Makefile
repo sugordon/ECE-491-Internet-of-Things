@@ -47,6 +47,8 @@ ROOT=$(shell pwd)
 
 CFLAGS += -Iinc -Ilib -Ilib/inc 
 CFLAGS += -Ilib/inc/core -Ilib/inc/peripherals 
+CFLAGS += -Ilib/inc/ethernet -Ilib/inc/lwip_all
+
 
 SRCS += lib/startup_stm32f4xx.s # add startup file to build
 

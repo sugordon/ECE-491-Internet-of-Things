@@ -15,7 +15,8 @@ endif
 
 ###################################################
 
-vpath %.c src src/peripherals
+vpath %.c src src/peripherals src/ethernet src/lwip_api src/lwip_core src/lwip_netif \
+	src/lwip_core/ipv4 /src/lwip_core/ipv6
 
 CFLAGS  = -g -O2 -Wall
 CFLAGS += -mlittle-endian -mthumb -mthumb-interwork -mcpu=cortex-m4
@@ -29,7 +30,7 @@ CFLAGS += -msoft-float
 endif
 
 CFLAGS += -ffreestanding -nostdlib
-CFLAGS += -Iinc -Iinc/core -Iinc/peripherals
+CFLAGS += -Iinc -Iinc/core -Iinc/peripherals -Iinc/ethernet -Iinc/lwip_all
 
 #SRCS  = stm32f4_discovery.c
 SRCS = misc.c stm32f4xx_dma.c stm32f4xx_rcc.c stm32f4xx_adc.c \
@@ -41,7 +42,8 @@ SRCS = misc.c stm32f4xx_dma.c stm32f4xx_rcc.c stm32f4xx_adc.c \
 	stm32f4xx_cryp_tdes.c stm32f4xx_hash_sha1.c  stm32f4xx_usart.c \
 	stm32f4xx_dac.c stm32f4xx_i2c.c stm32f4xx_wwdg.c \
 	stm32f4xx_dbgmcu.c stm32f4xx_iwdg.c \
-	stm32f4xx_dcmi.c stm32f4xx_pwr.c
+	stm32f4xx_dcmi.c stm32f4xx_pwr.c stm32f4x7_eth.c \
+	def.c dhcp.c 	
 
 OBJS = $(SRCS:.c=.o)
 
