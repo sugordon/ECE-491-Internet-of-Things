@@ -15,8 +15,12 @@ endif
 
 ###################################################
 
-vpath %.c src src/peripherals src/ethernet src/lwip_api src/lwip_core src/lwip_netif \
-	src/lwip_core/ipv4 /src/lwip_core/ipv6
+vpath %.c ../src src src/peripherals src/ethernet \
+		  src/lwip/core src/lwip/core/ipv4 \
+		  src/lwip/netif \
+		  src/lwip/api
+# Don't need some of this, like the high-level API
+# Using ethernetif.c from port, not the netif skeleton (replaced)
 
 CFLAGS  = -g -O2 -Wall
 CFLAGS += -mlittle-endian -mthumb -mthumb-interwork -mcpu=cortex-m4
@@ -30,8 +34,15 @@ CFLAGS += -msoft-float
 endif
 
 CFLAGS += -ffreestanding -nostdlib
-CFLAGS += -Iinc -Iinc/core -Iinc/peripherals -Iinc/ethernet -Iinc/lwip_all
 
+# Include files
+CFLAGS += -I../inc -Iinc \
+		  -Iinc/core -Iinc/peripherals \
+		  -Iinc/ethernet \
+		  -Iinc/lwip -Iinc/lwip/lwip -Iinc/lwip/ipv4 -Iinc/lwip/netif \
+		  -Isrc/lwip/port/STM32F4x7 -Isrc/lwip/port/STM32F4x7/Standalone 
+
+# Source files
 #SRCS  = stm32f4_discovery.c
 SRCS = misc.c stm32f4xx_dma.c stm32f4xx_rcc.c stm32f4xx_adc.c \
 	stm32f4xx_exti.c stm32f4xx_rng.c stm32f4xx_can.c stm32f4xx_flash.c \
@@ -42,8 +53,12 @@ SRCS = misc.c stm32f4xx_dma.c stm32f4xx_rcc.c stm32f4xx_adc.c \
 	stm32f4xx_cryp_tdes.c stm32f4xx_hash_sha1.c  stm32f4xx_usart.c \
 	stm32f4xx_dac.c stm32f4xx_i2c.c stm32f4xx_wwdg.c \
 	stm32f4xx_dbgmcu.c stm32f4xx_iwdg.c \
-	stm32f4xx_dcmi.c stm32f4xx_pwr.c stm32f4x7_eth.c \
-	def.c dhcp.c 	
+	stm32f4xx_dcmi.c stm32f4xx_pwr.c \
+	stm32f4x7_eth.c \
+	ethernetif.c etharp.c \
+	api_lib.c api_msg.c err.c netbuf.c netdb.c netifapi.c sockets.c tcpip.c \
+	dhcp.c dns.c init.c mem.c memp.c netif.c pbuf.c raw.c stats.c sys.c tcp.c tcp_in.c tcp_out.c udp.c \
+	autoip.c icmp.c igmp.c inet.c inet_chksum.c ip.c ip_addr.c ip_frag.c
 
 OBJS = $(SRCS:.c=.o)
 

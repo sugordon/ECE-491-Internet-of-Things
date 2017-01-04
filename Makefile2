@@ -1,7 +1,6 @@
 # Sources
 
-SRCS = main.c stm32f4xx_it.c system_stm32f4xx.c syscalls.c utils.c \
-	   netconf.c stm32f4x7_eth_bsp.c tcp_echoserver.c lib/src/ethernet/stm32f4x7_eth.c lib/src/lwip/core/def.c lib/src/lwip/core/timers.c
+SRCS = main.c stm32f4xx_it.c system_stm32f4xx.c syscalls.c utils.c
 
 # Project name
 
@@ -46,13 +45,10 @@ vpath %.a lib
 
 ROOT=$(shell pwd)
 
-# Include files, why so jank
-CFLAGS += -Iinc -Ilib -Ilib/inc \
-		  -Ilib/inc/core -Ilib/inc/peripherals \
-		  -Ilib/inc/ethernet \
-		  -Ilib/inc/lwip -Ilib/inc/lwip/lwip \
-		  -Ilib/inc/lwip/ipv4 -Ilib/inc/lwip/netif \
-		  -Ilib/src/lwip/port/STM32F4x7 -Ilib/src/lwip/port/STM32F4x7/Standalone
+CFLAGS += -Iinc -Ilib -Ilib/inc 
+CFLAGS += -Ilib/inc/core -Ilib/inc/peripherals 
+CFLAGS += -Ilib/inc/ethernet -Ilib/inc/lwip_all
+
 
 SRCS += lib/startup_stm32f4xx.s # add startup file to build
 

@@ -7,12 +7,11 @@
 #include <stdint.h>
 #include <math.h>
 
-#include "stm32f4xx_conf.h"
-#include "stm32f4x7_eth_bsp.h"
+#include "stm32f4x7_eth.h"
 #include "netconf.h"
+#include "main.h"
 #include "tcp_echoserver.h"
 #include "serial_debug.h"
-#include "main.h"
 
 #define BUFFER_SIZE 16
 
@@ -28,10 +27,11 @@ volatile char received_buffer[BUFFER_SIZE+1];
 volatile unsigned char isProcessing = 0; // flag indicating that tasks are being processed
 
 __IO uint32_t LocalTime = 0; /* this variable is used to create a time reference incremented by 10ms */
+uint32_t timingdelay;
 
 
 // Functions
-
+/*
 void InitPLL(void);
 void InitUSART(void);
 void InitGPIO(void);
@@ -42,13 +42,12 @@ void SendData(USART_TypeDef* USARTx, volatile char *s);
 void IncrementCounter(void);
 void HandlePacket(void);
 
-void Delay(volatile uint32_t nCount);
-
 void INTPD0_Config();
 void INTTIM2_Config();
 void TIM2_IRQHandler(void);
 void EXTI0_IRQHandler(void);
 void SendDebug(void);
+*/
 
 // --------------------------- //
 // ---------- Main ----------- //
@@ -63,16 +62,21 @@ int main(void) {
     InitGPIO();
     InitEthernet();
 
-    unsigned char i = 0;
+    /* Configure tasks for RIOS */
 
-    tasks[0].period = 1000;
-    tasks[0].elapsed_time = tasks[i].period;
+    tasks[0].period = 500;
+    tasks[0].elapsed_time = tasks[0].period;
     tasks[0].task_function = &Task1Function;
 
     tasks[1].period = 1000;
-    tasks[1].elapsed_time = tasks[i].period;
+    tasks[1].elapsed_time = tasks[1].period;
     tasks[1].task_function = &Task2Function;
-
+    
+    tasks[2].period = 2000;
+    tasks[2].elapsed_time = tasks[2].period;
+    tasks[2].task_function = &Task3Function;
+    
+    /* Debug info, clock speeds */
     SendDebug();
 
     /* Configure interrupts */
@@ -84,7 +88,7 @@ int main(void) {
     /*INTTIM_Config();*/
 
     while(1) {
-        HandlePacket()
+        //HandlePacket();
         /*PWR_EnterSTANDBYMode();*/
     }
 
@@ -132,6 +136,7 @@ void SendDebug() {
     SendData(USART3, buffer);
     sprintf(buffer, "fAHB: %d\n", (int)clkfreqs.HCLK_Frequency);         // 48MHz
     SendData(USART3, buffer);
+    sprintf(buffer, "fAPB1: %d\n", (int)clkfreqs.PCLK1_Frequency);       // 24MHz
     sprintf(buffer, "fAPB1: %d\n", (int)clkfreqs.PCLK1_Frequency);       // 24MHz
     SendData(USART3, buffer);
 }
@@ -183,10 +188,10 @@ void HandlePacket(void) {
 
     /* Check if any packet received */
     if (ETH_CheckFrameReceived()) { 
-        /* process received ethernet packet*/
+        /* Process received ethernet packet */
         LwIP_Pkt_Handle();
     }
-    /* handle periodic timers for LwIP*/
+    /* Handle periodic timers for LwIP*/
     LwIP_Periodic_Handle(LocalTime);
 }
 
@@ -354,8 +359,18 @@ void InitDAC(void) {
 
 /* Delay a number of systick cycles (1ms) */
 void Delay(volatile uint32_t nCount) {
-    time_var1 = nCount;
-    while(time_var1){};
+    //time_var1 = nCount;
+    //while(time_var1){};
+    /* Capture the current local time */
+    timingdelay = LocalTime + nCount;  
+
+    /* wait until the desired delay finish */  
+    while (timingdelay > LocalTime);
+}
+
+void Time_Update(void)
+{
+  LocalTime += TIMER_TICK;
 }
 
 // --------------------------------- //
@@ -476,7 +491,7 @@ void TIM2_IRQHandler(void) {
                 buffer[i] = 0;
             }
 
-            sprintf(buffer, "ip: %d\n", isProcessing);
+            sprintf(buffer, "Is Processing: %d\n", isProcessing);
             SendData(USART3, buffer);
         }
 
@@ -493,7 +508,6 @@ void TIM2_IRQHandler(void) {
             isProcessing = 0;
             /*SendData(USART3, "BBBB\n");*/
         } else {
-            /*IncrementCounter();*/
         }
     }
 }
@@ -511,6 +525,7 @@ void Task1Function(void) {
         SendData(USART3, "INIT1\n");
         init = 0;
     } else { // Normal behavior
+        SendData(USART3, "TASK1: IncrementCounter()\n");
         IncrementCounter();
     }
     return;
@@ -522,7 +537,6 @@ void Task2Function(void) {
         SendData(USART3, "INIT2\n");
         init = 0;
     } else { // Normal behavior
-        /*IncrementCounter();*/
         SendData(USART3, "TASK2\n");
     }
     return;
@@ -533,8 +547,8 @@ void Task3Function(void) {
     if (init) { // Initialization behavior
         init = 0;
     } else { // Normal behavior
-        /*SendData(USART3, "TASK3");*/
-        IncrementCounter();
+        SendData(USART3, "TASK3\n");
+        SendDebug();
     }
 }
 
@@ -593,7 +607,6 @@ void INTTIM_Config(void) {
        NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
        NVIC_Init(&NVIC_InitStructure);
        */
-
     /* Enable the clocks used for the timer */
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
     /*

@@ -49,7 +49,14 @@
    the Ethernet driver is used (less precise timing) */
 #define USE_Delay
 
-#define _eth_delay_    ETH_Delay /* Default _eth_delay_ function with less precise timing */
+#ifdef USE_Delay
+  #include "main.h"                /* Header file where the Delay function prototype is exported */  
+  #define _eth_delay_    Delay     /* User can provide more timing precise _eth_delay_ function
+                                      ex. use Systick with time base of 10 ms (as done in the provided 
+                                      STM32F4x7xx demonstrations) */
+#else
+  #define _eth_delay_    ETH_Delay /* Default _eth_delay_ function with less precise timing */
+#endif
 
 /* Uncomment the line below to allow custom configuration of the Ethernet driver buffers */    
 //#define CUSTOM_DRIVER_BUFFERS_CONFIG   
@@ -85,8 +92,22 @@
 /* These values are relatives to DP83848 PHY and change from PHY to another,
    so the user have to update this value depending on the used external PHY */   
 
+/* The PHY status register value change from a PHY to another, so the user have 
+   to update this value depending on the used external PHY */
+#define PHY_SR    ((uint16_t)31) /* Value for DP83848 PHY */
+
+/* The Speed and Duplex mask values change from a PHY to another, so the user
+   have to update this value depending on the used external PHY */
+#define PHY_DUPLEX_SPEED_STATUS_MASK    ((uint16_t)0x001C)
+#define PHY_100BTX_FULL                 (18)
+#define PHY_100BTX_HALF                 (8)
+#define PHY_10M_FULL                    (14)
+#define PHY_10M_HALF                    (4)
+
+/* IGNORE ALL CODE BELOW THIS */
+
 /* The DP83848 PHY status register  */
-#define PHY_SR                 ((uint16_t)0x10) /* PHY status register Offset */
+//#define PHY_SR                 ((uint16_t)0x10) /* PHY status register Offset */
 #define PHY_SPEED_STATUS       ((uint16_t)0x0002) /* PHY Speed mask */
 #define PHY_DUPLEX_STATUS      ((uint16_t)0x0004) /* PHY Duplex mask */
 
