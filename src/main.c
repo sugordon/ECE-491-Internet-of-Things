@@ -90,7 +90,7 @@ int main(void) {
     
     while(1) {
         //SendData(USART3, "HANDLING PACKET\n");
-        HandlePacket();
+        //HandlePacket();
         /*PWR_EnterSTANDBYMode();*/
     }
 
@@ -529,7 +529,7 @@ void Task1Function(void) {
         init = 0;
     } else { // Normal behavior
         //SendData(USART3, "TASK1: IncrementCounter()\n");
-        IncrementCounter();
+        HandlePacket();
     }
     return;
 }
@@ -541,6 +541,7 @@ void Task2Function(void) {
         init = 0;
     } else { // Normal behavior
         //SendData(USART3, "TASK2\n");
+        IncrementCounter();
     }
     return;
 }
