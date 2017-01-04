@@ -60,6 +60,7 @@ int main(void) {
     InitPLL();
     InitUSART();
     InitGPIO();
+
     InitEthernet();
 
     /* Configure tasks for RIOS */
@@ -82,13 +83,14 @@ int main(void) {
     /* Configure interrupts */
     INTPD0_Config();
     INTTIM2_Config();
-
+ 
     //TimerSet(TIMER_TICK);
     //TimerOn();
     /*INTTIM_Config();*/
-
+    
     while(1) {
-        //HandlePacket();
+        //SendData(USART3, "HANDLING PACKET\n");
+        HandlePacket();
         /*PWR_EnterSTANDBYMode();*/
     }
 
@@ -102,7 +104,6 @@ int main(void) {
 
 // This should be done after USART is configured
 void SendDebug() {
-
 
     char buffer[256];
     for (int i = 0; i < 256; i++) {
@@ -174,13 +175,15 @@ void InitEthernet(void) {
 
     /* Configure Ethernet (GPIOs, clocks, MAC, DMA) */
     ETH_BSP_Config();
-
+    SendData(USART3, "DONE: Eth BSP Config\n");
+    
     /* Initialize the LwIP stack */
     LwIP_Init();
-
+    SendData(USART3, "DONE: LwIP Init\n");
+    
     /* Initialize TCP echo server */
     tcp_echoserver_init();
-
+    SendData(USART3, "DONE: TCP Server Init\n");
 }
 
 // Put this in infinite loop or interrupt
@@ -490,9 +493,9 @@ void TIM2_IRQHandler(void) {
             for (int i = 0; i < 256; i++) {
                 buffer[i] = 0;
             }
-
-            sprintf(buffer, "Is Processing: %d\n", isProcessing);
-            SendData(USART3, buffer);
+            //sprintf(buffer, "Is Processing: %d\n", isProcessing);
+            //SendData(USART3, buffer);
+            //SendData(USART3, "Handling packet...\n");
         }
 
         if (isProcessing == 0) {
@@ -525,7 +528,7 @@ void Task1Function(void) {
         SendData(USART3, "INIT1\n");
         init = 0;
     } else { // Normal behavior
-        SendData(USART3, "TASK1: IncrementCounter()\n");
+        //SendData(USART3, "TASK1: IncrementCounter()\n");
         IncrementCounter();
     }
     return;
@@ -537,7 +540,7 @@ void Task2Function(void) {
         SendData(USART3, "INIT2\n");
         init = 0;
     } else { // Normal behavior
-        SendData(USART3, "TASK2\n");
+        //SendData(USART3, "TASK2\n");
     }
     return;
 }
@@ -547,8 +550,8 @@ void Task3Function(void) {
     if (init) { // Initialization behavior
         init = 0;
     } else { // Normal behavior
-        SendData(USART3, "TASK3\n");
-        SendDebug();
+        //SendData(USART3, "TASK3\n");
+        //SendDebug();
     }
 }
 

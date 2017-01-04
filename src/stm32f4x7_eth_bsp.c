@@ -70,14 +70,15 @@ void ETH_BSP_Config(void)
   
   /* Configure the GPIO ports for ethernet pins */
   ETH_GPIO_Config();
-  SendData(USART3, "FINISHED: GPIO Config\n");
+  SendData(USART3, "SUCCESS: Ethernet GPIO Config\n");
 
   /* Configure the Ethernet MAC/DMA */
   ETH_MACDMA_Config();
+  SendData(USART3, "SUCCESS: Ethernet MACDMA Config\n");
 
   if (EthInitStatus == 0)
   {
-    SendData(USART3, "Ethernet Init failed\n");
+    SendData(USART3, "FAILURE: Ethernet Init\n");
     //LCD_SetTextColor(LCD_COLOR_RED);
     //LCD_DisplayStringLine(LINE(5), (uint8_t*)"   Ethernet Init   ");
     //LCD_DisplayStringLine(LINE(6), (uint8_t*)"      failed      ");

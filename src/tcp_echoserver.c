@@ -34,6 +34,9 @@
 
  /* This file was modified by ST */
 
+#include <stdlib.h>
+#include <string.h>
+#include "main.h"
 
 #include "lwip/debug.h"
 #include "lwip/stats.h"
@@ -95,16 +98,20 @@ void tcp_echoserver_init(void)
       
       /* initialize LwIP tcp_accept callback function */
       tcp_accept(tcp_echoserver_pcb, tcp_echoserver_accept);
+       
+      SendData(USART3, "TCP Success\n");
     }
     else 
     {
       /* deallocate the pcb */
       memp_free(MEMP_TCP_PCB, tcp_echoserver_pcb);
+      SendData(USART3, "Can not bind pcb\n");
       printf("Can not bind pcb\n");
     }
   }
   else
   {
+    SendData(USART3, "Can not create new  pcb\n");
     printf("Can not create new pcb\n");
   }
 }
@@ -355,6 +362,7 @@ static err_t tcp_echoserver_sent(void *arg, struct tcp_pcb *tpcb, u16_t len)
 static void tcp_echoserver_send(struct tcp_pcb *tpcb, struct tcp_echoserver_struct *es)
 {
   struct pbuf *ptr;
+  char *usart_buf; // send this over USART
   err_t wr_err = ERR_OK;
  
   while ((wr_err == ERR_OK) &&
@@ -366,6 +374,15 @@ static void tcp_echoserver_send(struct tcp_pcb *tpcb, struct tcp_echoserver_stru
     ptr = es->p;
 
     /* enqueue data for transmission */
+    //wr_err = tcp_write(tpcb, ptr->payload, ptr->len, 1);
+    
+    /* send data over USART */
+    usart_buf = (char *) malloc(ptr->len+1);
+    memcpy(usart_buf, ptr->payload, ptr->len);
+    usart_buf[ptr->len] = '\0'; // null terminate
+    //SendData(USART3, "HEY SUP\n");
+    SendData(USART3, usart_buf);
+
     wr_err = tcp_write(tpcb, ptr->payload, ptr->len, 1);
     
     if (wr_err == ERR_OK)
@@ -385,7 +402,7 @@ static void tcp_echoserver_send(struct tcp_pcb *tpcb, struct tcp_echoserver_stru
       
       /* free pbuf: will free pbufs up to es->p (because es->p has a reference count > 0) */
       pbuf_free(ptr);
-
+      free(usart_buf);
       /* Update tcp window size to be advertized : should be called when received
       data (with the amount plen) has been processed by the application layer */
       tcp_recved(tpcb, plen);
